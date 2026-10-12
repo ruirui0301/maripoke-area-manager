@@ -81,7 +81,20 @@ function asFeatures(obj){if(obj.type==='FeatureCollection')return obj.features||
 function featureCollection(features){return {type:'FeatureCollection',features:features.map(f=>({type:'Feature',properties:f.properties||{},geometry:f.geometry}))}}
 function niceName(fallback,obj){return String(obj?.name||obj?.properties?.name||fallback||'名称未設定')}
 function status(id,msg){$(id).textContent=msg}
-function showLoggedIn(user){currentUser=user;$('loginPanel').classList.add('hidden');$('app').classList.remove('hidden');$('sessionBadge').textContent=user.email||'ログイン中';}
+function showLoggedIn(user){
+  currentUser=user;
+  $('loginPanel').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('sessionBadge').textContent=user.email||'ログイン中';
+
+  // ログイン後、地図が表示された状態でサイズを再計算
+  setTimeout(()=>{
+    if(map){
+      map.invalidateSize(true);
+      redrawMap();
+    }
+  },300);
+}
 function showLoggedOut(){currentUser=null;areas=[];$('loginPanel').classList.remove('hidden');$('app').classList.add('hidden');$('sessionBadge').textContent='未ログイン';}
 async function refreshSession(){
  if(!sb)return;
