@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>マリポケ エリア管理（共有版）</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#182235;background:#f3f6fb}
+*{box-sizing:border-box}body{margin:0}header{padding:18px 20px;background:#172b4d;color:white}header h1{margin:0;font-size:1.35rem}header p{margin:5px 0 0;color:#d6e1f2;font-size:.92rem}
+main{max-width:1300px;margin:auto;padding:16px;display:grid;grid-template-columns:minmax(290px,390px) minmax(0,1fr);gap:16px}
+.panel{background:white;border-radius:14px;padding:16px;box-shadow:0 5px 18px #14213d0c;margin-bottom:14px}
+h2{font-size:1.05rem;margin:0 0 12px}label{display:block;font-weight:650;font-size:.92rem;margin:10px 0 6px}
+input[type=file],input[type=text],input[type=email],input[type=password]{width:100%;padding:10px;border:1px solid #c9d3e1;border-radius:8px;background:#fff}
+button{border:0;border-radius:8px;padding:10px 13px;background:#245fe5;color:white;font-weight:700;cursor:pointer;margin:6px 4px 0 0}button.secondary{background:#e7edf7;color:#1d3152}button.danger{background:#b42318}button:disabled{opacity:.5;cursor:not-allowed}
+.small{font-size:.83rem;color:#667085;line-height:1.55}.status{background:#f0f4fa;padding:10px;border-radius:8px;margin-top:10px;white-space:pre-wrap;line-height:1.5;font-size:.9rem}
+#map{height:540px;border-radius:12px;min-height:380px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.stat{background:#fff;border-radius:12px;padding:12px;box-shadow:0 5px 18px #14213d0c}.stat b{font-size:1.25rem;display:block}.stat span{font-size:.8rem;color:#667085}
+table{width:100%;border-collapse:collapse;font-size:.88rem}th,td{padding:8px;border-bottom:1px solid #e6ebf2;text-align:left;vertical-align:top}
+#results{overflow:auto}.resultrow{padding:10px 0;border-bottom:1px solid #e6ebf2}
+.topline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.hidden{display:none!important}.pill{display:inline-block;border-radius:99px;padding:4px 9px;background:#e5f6eb;color:#126b36;font-size:.8rem}
+@media(max-width:800px){main{grid-template-columns:1fr}#map{height:420px}.stats{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<header><div class="topline"><div><h1>マリポケ エリア管理</h1><p>共有版：エリア登録・KML判定・GeoJSON出力</p></div><div id="sessionBadge" class="pill">未ログイン</div></div></header>
+<section id="loginPanel" class="panel" style="max-width:520px;margin:24px auto">
+<h2>ログイン</h2>
+<p class="small">許可されたメンバーのメールアドレスとパスワードでログインしてください。</p>
+<form id="loginForm">
+<label for="email">メールアドレス</label><input id="email" type="email" autocomplete="username" required>
+<label for="password">パスワード</label><input id="password" type="password" autocomplete="current-password" required>
+<button type="submit">ログイン</button>
+</form>
+<div id="loginStatus" class="status">Supabase接続設定を確認しています。</div>
+</section>
+<div id="app" class="hidden">
+<div style="max-width:1300px;margin:auto;padding:0 16px"><button id="logout" class="secondary">ログアウト</button><span class="small"> ログイン後に共有データを読み込みます。</span></div>
+<main>
+<section>
+<div class="panel">
+<h2>① 既存GeoJSONを登録</h2>
+<label for="geoFiles">GeoJSONファイル（複数選択可）</label><input id="geoFiles" type="file" accept=".geojson,.json,application/json" multiple>
+<button id="importGeo">GeoJSONを共有データに登録</button>
+<p class="small">登録したエリアはSupabaseに保存され、許可されたメンバー間で共有されます。</p>
+<button id="exportAll" class="secondary">全エリアをバックアップ</button>
+<div id="geoStatus" class="status">GeoJSONファイルを選択してください。</div>
+</div>
+<div class="panel">
+<h2>② 新しいKMLを判定</h2>
+<label for="kmlFile">KMLファイル</label><input id="kmlFile" type="file" accept=".kml,application/xml,text/xml">
+<label for="kmlOutName">保存するエリア名</label><input id="kmlOutName" type="text" placeholder="例：Japan-Saitama-Kuki">
+<button id="analyzeKml">① 面積・重複を判定</button>
+<button id="downloadKmlGeo" class="secondary" disabled>② GeoJSONを保存</button>
+<button id="registerKml" disabled>③ 共有データに登録</button>
+<div id="kmlStatus" class="status">KMLファイルを選択してください。</div><div id="results"></div>
+</div>
+<div class="panel">
+<h2>③ 登録済みエリア</h2>
+<div id="areaCount" class="small">読み込み中…</div>
+<div style="max-height:360px;overflow:auto"><table><thead><tr><th>エリア名</th><th>面積</th><th>操作</th></tr></thead><tbody id="areaTable"></tbody></table></div>
+</div>
+</section>
+<section>
+<div class="stats"><div class="stat"><span>登録エリア</span><b id="statCount">0</b></div><div class="stat"><span>登録面積合計※</span><b id="statArea">0 km²</b></div><div class="stat"><span>今回の重複</span><b id="statOverlap">—</b></div></div>
+<div class="panel"><h2>地図表示</h2><div id="map"></div><p class="small">青＝登録済み、緑＝今回のKML、赤＝重複部分。背景地図はEsri World Street Mapです。</p></div>
+<div class="panel"><h2>注意</h2><p class="small">面積・重複は地理座標に基づく近似計算です。複雑な境界や重なり方によっては判定誤差が出るため、登録前に地図と数値を確認してください。データを削除する前にバックアップを取ってください。</p></div>
+</section>
+</main>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let sb=null, currentUser=null, areas=[], candidate=null, pendingKml=null, map=null, existingLayer=null, candidateLayer=null, overlapLayer=null;
+const configured=window.MARIPOKE_SUPABASE_URL && !window.MARIPOKE_SUPABASE_URL.includes("YOUR_PROJECT_REF") && window.MARIPOKE_SUPABASE_ANON_KEY && !window.MARIPOKE_SUPABASE_ANON_KEY.includes("YOUR_SUPABASE");
+function fmt(n){return Number(n||0).toLocaleString('ja-JP',{maximumFractionDigits:4})}
+function polygonal(f){return f&&f.geometry&&['Polygon','MultiPolygon'].includes(f.geometry.type)}
+function areaKm2(f){return turf.area(f)/1e6}
+function asFeatures(obj){if(obj.type==='FeatureCollection')return obj.features||[];if(obj.type==='Feature')return [obj];if(obj.type&&obj.coordinates)return [{type:'Feature',properties:{},geometry:obj}];throw Error('GeoJSON形式ではありません。')}
+function featureCollection(features){return {type:'FeatureCollection',features:features.map(f=>({type:'Feature',properties:f.properties||{},geometry:f.geometry}))}}
+function niceName(fallback,obj){return String(obj?.name||obj?.properties?.name||fallback||'名称未設定')}
+function status(id,msg){$(id).textContent=msg}
+function showLoggedIn(user){currentUser=user;$('loginPanel').classList.add('hidden');$('app').classList.remove('hidden');$('sessionBadge').textContent=user.email||'ログイン中';}
+function showLoggedOut(){currentUser=null;areas=[];$('loginPanel').classList.remove('hidden');$('app').classList.add('hidden');$('sessionBadge').textContent='未ログイン';}
+async function refreshSession(){
+ if(!sb)return;
+ const {data:{session}}=await sb.auth.getSession();
+ if(session){showLoggedIn(session.user);await loadAreas()}else showLoggedOut();
+}
+$('loginForm').addEventListener('submit',async e=>{
+ e.preventDefault();if(!sb){status('loginStatus','接続設定が未完了です。READMEの手順でconfig.jsを設定してください。');return}
+ status('loginStatus','ログインしています…');
+ const {data,error}=await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
+ if(error){status('loginStatus','ログインできませんでした：'+error.message);return}
+ status('loginStatus','ログインしました。');await refreshSession();
+});
+$('logout').onclick=async()=>{if(sb)await sb.auth.signOut();showLoggedOut()};
+function initMap(){
+ if(!window.L){$('map').textContent='地図ライブラリを読み込めません。';return}
+ map=L.map('map').setView([36.2,138.2],5);
+ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'}).addTo(map);
+ existingLayer=L.geoJSON(null,{style:{color:'#2463eb',weight:2,fillColor:'#2463eb',fillOpacity:.16},onEachFeature:(f,l)=>l.bindPopup(f.properties?f.properties._managerName||f.properties.name||'登録済み':'登録済み')}).addTo(map);
+ candidateLayer=L.geoJSON(null,{style:{color:'#16834a',weight:3,fillColor:'#20b26b',fillOpacity:.15}}).addTo(map);
+ overlapLayer=L.geoJSON(null,{style:{color:'#d92d20',weight:2,fillColor:'#f04438',fillOpacity:.55}}).addTo(map);
+}
+function redrawMap(){
+ if(!existingLayer)return;
+ existingLayer.clearLayers();candidateLayer.clearLayers();overlapLayer.clearLayers();
+ for(const a of areas){const fs=(a.geojson?.type==='FeatureCollection'?a.geojson.features:asFeatures(a.geojson||{}));for(const f of fs)if(polygonal(f))existingLayer.addData({...f,properties:{...(f.properties||{}),_managerName:a.name}})}
+ if(candidate?.features)candidate.features.filter(polygonal).forEach(f=>candidateLayer.addData(f));
+ if(candidate?.overlaps)candidate.overlaps.forEach(f=>overlapLayer.addData(f));
+ const layers=[existingLayer,candidateLayer,overlapLayer].filter(x=>x.getLayers().length);
+ if(layers.length){try{map.fitBounds(L.featureGroup(layers).getBounds().pad(.08),{maxZoom:15})}catch{}}
+}
+function renderAreas(){
+ $('statCount').textContent=areas.length;$('areaCount').textContent=`共有エリア ${areas.length}件`;
+ $('statArea').textContent=fmt(areas.reduce((s,a)=>s+Number(a.area_km2||0),0))+' km²';
+ const tbody=$('areaTable');tbody.innerHTML='';
+ areas.forEach(a=>{
+  const tr=document.createElement('tr'),td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td');
+  td1.textContent=a.name;td2.textContent=fmt(a.area_km2)+' km²';
+  const dl=document.createElement('button');dl.className='secondary';dl.textContent='GeoJSON';dl.onclick=()=>downloadFeatureCollection(a.geojson,a.name);
+  const del=document.createElement('button');del.className='danger';del.textContent='削除';del.onclick=async()=>{if(confirm(`共有データから「${a.name}」を削除しますか？`)){const {error}=await sb.from('areas').delete().eq('id',a.id);if(error){alert('削除できませんでした：'+error.message);return}await loadAreas()}};
+  td3.append(dl,del);tr.append(td1,td2,td3);tbody.appendChild(tr);
+ });
+ redrawMap();
+}
+async function loadAreas(){
+ status('geoStatus','共有データを読み込み中…');
+ const {data,error}=await sb.from('areas').select('id,name,geojson,area_km2,created_at').order('id',{ascending:true}).limit(10000);
+ if(error){status('geoStatus','読み込みエラー：'+error.message+'\\n認証ユーザーのアクセス許可設定を確認してください。');return}
+ areas=(data||[]).map(a=>({...a,geojson:typeof a.geojson==='string'?JSON.parse(a.geojson):a.geojson}));
+ renderAreas();status('geoStatus','共有データを読み込みました。GeoJSONを選択できます。');
+}
+function downloadFeatureCollection(geojson,name){
+ const blob=new Blob([JSON.stringify(geojson,null,2)],{type:'application/geo+json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download=(String(name||'area').replace(/[\\/:*?"<>|]/g,'_').replace(/\.geojson$/i,'')||'area')+'.geojson';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('exportAll').onclick=()=>downloadFeatureCollection({type:'FeatureCollection',features:areas.flatMap(a=>{const fs=a.geojson?.type==='FeatureCollection'?a.geojson.features:asFeatures(a.geojson||{});return fs.map(f=>({...f,properties:{...(f.properties||{}),_managerName:a.name}}))})},'maripoke-all-areas-backup');
+$('importGeo').onclick=async()=>{
+ if(!currentUser)return;
+ const files=Array.from($('geoFiles').files);if(!files.length){status('geoStatus','GeoJSONファイルを選択してください。');return}
+ let ok=0,fail=[];
+ for(const file of files){try{
+  const obj=JSON.parse(await file.text()),feats=asFeatures(obj).filter(polygonal);
+  if(!feats.length)throw Error('Polygon/MultiPolygonがありません');
+  const name=file.name.replace(/\.(geojson|json)$/i,'');
+  const geojson=featureCollection(feats.map(f=>({...f,properties:{...(f.properties||{}),_managerName:niceName(name,f)}})));
+  const total=feats.reduce((s,f)=>s+areaKm2(f),0);
+  const {error}=await sb.from('areas').insert({name,geojson,area_km2:total});
+  if(error)throw error;ok++;
+ }catch(e){fail.push(file.name+': '+(e.message||String(e)))}}
+ $('geoFiles').value='';await loadAreas();status('geoStatus',`登録成功：${ok}件`+(fail.length?'\n失敗：\n'+fail.join('\n'):''));
+};
+function closeRing(coords){if(coords.length<4)throw Error('ポリゴン座標が4点未満です');const a=coords[0],b=coords[coords.length-1];if(a[0]!==b[0]||a[1]!==b[1])coords.push([...a]);return coords}
+function parseCoords(node){return node.textContent.trim().split(/\s+/).filter(Boolean).map(s=>{const p=s.split(',');const x=Number(p[0]),y=Number(p[1]);if(!Number.isFinite(x)||!Number.isFinite(y))throw Error('KML座標が不正です');return [x,y]})}
+function parseKml(text,name){
+ const xml=new DOMParser().parseFromString(text,'application/xml');if(xml.querySelector('parsererror'))throw Error('KMLを解析できません');
+ const pms=Array.from(xml.getElementsByTagNameNS('*','Placemark')),feats=[];
+ for(const pm of pms)for(const p of Array.from(pm.getElementsByTagNameNS('*','Polygon'))){
+  const outer=Array.from(p.children).find(x=>x.localName==='outerBoundaryIs'),lr=outer&&Array.from(outer.children).find(x=>x.localName==='LinearRing'),cn=lr&&Array.from(lr.children).find(x=>x.localName==='coordinates');if(!cn)continue;
+  const rings=[closeRing(parseCoords(cn))];
+  for(const inner of Array.from(p.children).filter(x=>x.localName==='innerBoundaryIs')){const ilr=Array.from(inner.children).find(x=>x.localName==='LinearRing'),ic=ilr&&Array.from(ilr.children).find(x=>x.localName==='coordinates');if(ic)rings.push(closeRing(parseCoords(ic)))}
+  feats.push({type:'Feature',properties:{name},geometry:{type:'Polygon',coordinates:rings}});
+ }
+ if(!feats.length)throw Error('KML内にPolygonが見つかりません');return feats;
+}
+function downloadPending(){if(!pendingKml)return;const name=$('kmlOutName').value.trim()||pendingKml.defaultName;downloadFeatureCollection(featureCollection(pendingKml.features),name)}
+$('analyzeKml').onclick=async()=>{
+ const file=$('kmlFile').files[0];if(!file){status('kmlStatus','KMLファイルを選択してください。');return}
+ try{
+  $('downloadKmlGeo').disabled=true;$('registerKml').disabled=true;
+  const defaultName=file.name.replace(/\.kml$/i,'');if(!$('kmlOutName').value.trim())$('kmlOutName').value=defaultName;
+  const feats=parseKml(await file.text(),defaultName),total=feats.reduce((s,f)=>s+areaKm2(f),0);
+  let overlaps=[],rows=[];const existing=areas.flatMap(a=>(a.geojson?.type==='FeatureCollection'?a.geojson.features:asFeatures(a.geojson||{})).filter(polygonal).map(f=>({feature:f,areaName:a.name})));
+  for(const e of existing)for(const n of feats){try{const inter=turf.intersect(turf.featureCollection([e.feature,n]));if(inter){const ar=areaKm2(inter);if(ar>0.0000001){overlaps.push(inter);rows.push({name:e.areaName,area:ar})}}}catch(err){}}
+  let uniqueOverlap=0;if(overlaps.length){try{let merged=overlaps[0];for(let i=1;i<overlaps.length;i++){try{merged=turf.union(turf.featureCollection([merged,overlaps[i]]))||merged}catch{}}uniqueOverlap=areaKm2(merged)}catch{uniqueOverlap=rows.reduce((s,r)=>s+r.area,0)}}
+  uniqueOverlap=Math.min(uniqueOverlap,total);const pct=total?uniqueOverlap/total*100:0;
+  pendingKml={features:feats,overlaps,defaultName,total,uniqueOverlap};candidate={features:feats,overlaps};
+  $('statOverlap').textContent=uniqueOverlap>0?'あり':'なし';
+  status('kmlStatus',`判定完了\nポリゴン数：${feats.length}\n面積合計：約 ${fmt(total)} km²\n重複：${uniqueOverlap>0?'あり':'なし'}\n重複面積：約 ${fmt(uniqueOverlap)} km²\n未重複面積：約 ${fmt(Math.max(0,total-uniqueOverlap))} km²\n重複率：約 ${fmt(pct)}%`);
+  const result=$('results');result.innerHTML='<h3 style="font-size:.98rem">重複している既存エリア</h3>';
+  if(!rows.length)result.innerHTML+='<p class="small">面積のある重複は見つかりませんでした。</p>';
+  else{const grouped={};rows.forEach(r=>grouped[r.name]=(grouped[r.name]||0)+r.area);Object.entries(grouped).sort((a,b)=>b[1]-a[1]).forEach(([name,ar])=>{const d=document.createElement('div');d.className='resultrow';d.textContent=`${name} — 重複部分の合計 約 ${fmt(ar)} km²`;result.appendChild(d)})}
+  $('downloadKmlGeo').disabled=false;$('registerKml').disabled=false;redrawMap();
+ }catch(e){pendingKml=null;status('kmlStatus','判定できませんでした：'+e.message)}
+};
+$('downloadKmlGeo').onclick=downloadPending;
+$('registerKml').onclick=async()=>{
+ if(!pendingKml||!currentUser)return;
+ const name=$('kmlOutName').value.trim().replace(/\.geojson$/i,'')||pendingKml.defaultName;
+ const {error}=await sb.from('areas').insert({name,geojson:featureCollection(pendingKml.features),area_km2:pendingKml.total});
+ if(error){status('kmlStatus','登録できませんでした：'+error.message);return}
+ await loadAreas();status('kmlStatus',$('kmlStatus').textContent+'\n共有データへの登録完了：'+name);$('registerKml').disabled=true;
+};
+(async()=>{
+ initMap();
+ if(!configured||!window.supabase?.createClient){status('loginStatus','Supabase接続設定が未完了です。\nREADMEを確認し、config.jsにProject URLと公開用anon/publishable keyを設定してください。');return}
+ sb=window.supabase.createClient(window.MARIPOKE_SUPABASE_URL,window.MARIPOKE_SUPABASE_ANON_KEY);
+ sb.auth.onAuthStateChange((event,session)=>{if(session){showLoggedIn(session.user);setTimeout(()=>loadAreas(),0)}else showLoggedOut()});
+ await refreshSession();
+})();
+</script>
+</body></html>
